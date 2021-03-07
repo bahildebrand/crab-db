@@ -1,8 +1,8 @@
+use crate::file::record::Record;
 use bytes::BytesMut;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
-use crate::file::record::Record;
 
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
@@ -21,7 +21,7 @@ impl FileActor {
 
     async fn handle_message(
         &mut self,
-        msg: FileActorMessage
+        msg: FileActorMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match msg {
             FileActorMessage::WriteData { respond_to, data } => {
