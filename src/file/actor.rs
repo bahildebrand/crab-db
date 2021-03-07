@@ -1,7 +1,8 @@
 use bytes::BytesMut;
-use tokio::fs::File;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
+use crate::file::record::Record;
 
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
@@ -17,14 +18,16 @@ impl FileActor {
     fn new(receiver: mpsc::Receiver<FileActorMessage>) -> Self {
         FileActor { receiver }
     }
+
     async fn handle_message(
         &mut self,
-        msg: FileActorMessage,
-        mut db_file: File,
+        msg: FileActorMessage
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match msg {
             FileActorMessage::WriteData { respond_to, data } => {
-                db_file.write_all(&data[..]).await?;
+                let mut record = Record::new("record.csv").await;
+
+                record.write_record(data).await?;
                 // TODO: Turn this into an error response
                 respond_to.send(0);
             }
@@ -37,10 +40,15 @@ impl FileActor {
 async fn run_file_actor(
     mut actor: FileActor,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    while let Some(msg) = actor.receiver.recv().await {
-        let mut file = File::create("foo.txt").await?;
+    let shard_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open("shard.csv")
+        .await?;
 
-        actor.handle_message(msg, file).await?;
+    while let Some(msg) = actor.receiver.recv().await {
+        actor.handle_message(msg).await?;
     }
 
     Ok(())
@@ -67,7 +75,6 @@ impl FileActorHandle {
             data: data,
         };
 
-        println!("Writing data...");
         // Ignore send errors. If this send fails, so does the
         // recv.await below. There's no reason to check the
         // failure twice.
