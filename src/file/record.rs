@@ -8,7 +8,7 @@ pub(crate) struct Record {
 
 impl Record {
     pub async fn new(record_name: &str) -> Self {
-        let mut record_file = OpenOptions::new()
+        let record_file = OpenOptions::new()
             .read(true)
             .append(true)
             .create(true)

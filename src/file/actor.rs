@@ -1,7 +1,6 @@
 use crate::file::record::Record;
 use bytes::BytesMut;
-use tokio::fs::{File, OpenOptions};
-use tokio::io::AsyncWriteExt;
+use tokio::fs::OpenOptions;
 use tokio::sync::{mpsc, oneshot};
 
 struct FileActor {
