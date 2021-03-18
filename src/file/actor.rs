@@ -9,6 +9,7 @@ struct FileActor {
 enum FileActorMessage {
     WriteData {
         respond_to: oneshot::Sender<u32>,
+        key: String,
         data: BytesMut,
     },
 }
@@ -23,10 +24,10 @@ impl FileActor {
         msg: FileActorMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match msg {
-            FileActorMessage::WriteData { respond_to, data } => {
+            FileActorMessage::WriteData { respond_to, key, data } => {
                 let mut record = Record::new("record.csv").await;
 
-                record.write_record(data).await?;
+                record.write_record(key, data).await?;
                 // TODO: Turn this into an error response
                 respond_to.send(0);
             }
@@ -67,10 +68,11 @@ impl FileActorHandle {
         Self { sender }
     }
 
-    pub async fn write_data(&self, data: BytesMut) -> u32 {
+    pub async fn write_data(&self, key: String, data: BytesMut) -> u32 {
         let (send, recv) = oneshot::channel();
         let msg = FileActorMessage::WriteData {
             respond_to: send,
+            key,
             data: data,
         };
 

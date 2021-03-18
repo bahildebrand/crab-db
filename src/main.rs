@@ -16,7 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let handle = root_handle.clone();
         tokio::spawn(async move {
+            // TODO: Parse these values from input JSON
             let mut buf = BytesMut::with_capacity(1024);
+            let key = String::from("key");
 
             loop {
                 let n = match socket.read_buf(&mut buf).await {
@@ -31,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                handle.write_data(buf.clone()).await;
+                handle.write_data(key.clone(),buf.clone()).await;
             }
         });
     }
