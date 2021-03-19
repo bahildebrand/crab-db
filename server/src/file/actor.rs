@@ -24,7 +24,11 @@ impl FileActor {
         msg: FileActorMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match msg {
-            FileActorMessage::WriteData { respond_to, key, data } => {
+            FileActorMessage::WriteData {
+                respond_to,
+                key,
+                data,
+            } => {
                 let mut record = Record::new("record.csv").await;
 
                 record.write_record(key, data).await?;

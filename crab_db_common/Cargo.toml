@@ -1,5 +1,5 @@
 [package]
-name = "crab-db"
+name = "crab_db_common"
 version = "0.1.0"
 authors = ["Blake Hildebrand <baugusthildebrand@gmail.com>"]
 edition = "2018"
@@ -7,7 +7,4 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "1"
-tokio = { version = "1", features = ["full"] }
-crab_db_common = { path = "../crab_db_common" }
-tokio-util = { version = "0.6", features = ["codec"] }
+serde = { version = "1", features = ["derive"]}

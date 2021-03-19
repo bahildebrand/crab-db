@@ -1,4 +1,2 @@
 #[tokio::test]
-async fn test_write() {
-
-}
+async fn test_write() {}
