@@ -1,5 +1,5 @@
 use crate::file::record::Record;
-use bytes::BytesMut;
+use bytes::Bytes;
 use tokio::fs::OpenOptions;
 use tokio::sync::{mpsc, oneshot};
 
@@ -10,7 +10,7 @@ enum FileActorMessage {
     WriteData {
         respond_to: oneshot::Sender<u32>,
         key: String,
-        data: BytesMut,
+        data: Bytes,
     },
 }
 
@@ -72,7 +72,7 @@ impl FileActorHandle {
         Self { sender }
     }
 
-    pub async fn write_data(&self, key: String, data: BytesMut) -> u32 {
+    pub async fn write_data(&self, key: String, data: Bytes) -> u32 {
         let (send, recv) = oneshot::channel();
         let msg = FileActorMessage::WriteData {
             respond_to: send,

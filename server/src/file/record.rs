@@ -1,4 +1,4 @@
-use bytes::BytesMut;
+use bytes::Bytes;
 use std::{collections::HashMap, usize};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
@@ -28,7 +28,7 @@ impl Record {
     pub async fn write_record(
         &mut self,
         key: String,
-        data: BytesMut,
+        data: Bytes,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.record_file.write_all(&data[..]).await?;
 
