@@ -1,0 +1,15 @@
+syntax = "proto3";
+package crab_db;
+
+service CrabDb {
+    rpc Write (WriteRequest) returns (WriteResponse);
+}
+
+message WriteRequest {
+   string key = 1;
+   bytes data = 2;
+}
+
+message WriteResponse {
+    string message = 1;
+}

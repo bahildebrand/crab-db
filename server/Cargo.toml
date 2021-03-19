@@ -8,6 +8,10 @@ edition = "2018"
 
 [dependencies]
 bytes = "1"
-tokio = { version = "1", features = ["full"] }
-crab_db_common = { path = "../crab_db_common" }
+tonic = "0.4"
+prost = "0.7"
+tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.6", features = ["codec"] }
+
+[build-dependencies]
+tonic-build = "0.4"
