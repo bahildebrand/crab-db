@@ -1,11 +1,11 @@
 use bytes::Bytes;
-use std::{collections::HashMap, usize};
+use std::{collections::HashMap, io::SeekFrom, usize};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 pub(crate) struct Record {
     record_file: File,
-    map: HashMap<String, usize>,
+    key_map: HashMap<String, u64>,
 }
 
 impl Record {
@@ -21,7 +21,7 @@ impl Record {
 
         Record {
             record_file: record_file,
-            map: HashMap::new(),
+            key_map: HashMap::new(),
         }
     }
 
@@ -30,6 +30,9 @@ impl Record {
         key: String,
         data: Bytes,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let cursor = self.record_file.seek(SeekFrom::End(0)).await?;
+        self.key_map.insert(key, cursor);
+
         self.record_file.write_all(&data[..]).await?;
 
         Ok(())
