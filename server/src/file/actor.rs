@@ -5,6 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
+    record: Record
 }
 enum FileActorMessage {
     WriteData {
@@ -15,8 +16,11 @@ enum FileActorMessage {
 }
 
 impl FileActor {
-    fn new(receiver: mpsc::Receiver<FileActorMessage>) -> Self {
-        FileActor { receiver }
+    async fn new(receiver: mpsc::Receiver<FileActorMessage>) -> Self {
+        FileActor {
+            receiver: receiver,
+            record: Record::new("record.csv").await
+        }
     }
 
     async fn handle_message(
@@ -29,9 +33,8 @@ impl FileActor {
                 key,
                 data,
             } => {
-                let mut record = Record::new("record.csv").await;
+                self.record.write_record(key, data).await?;
 
-                record.write_record(key, data).await?;
                 // TODO: Turn this into an error response
                 respond_to.send(0);
             }
@@ -64,9 +67,9 @@ pub(crate) struct FileActorHandle {
 }
 
 impl FileActorHandle {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let (sender, receiver) = mpsc::channel(8);
-        let actor = FileActor::new(receiver);
+        let actor = FileActor::new(receiver).await;
         tokio::spawn(run_file_actor(actor));
 
         Self { sender }

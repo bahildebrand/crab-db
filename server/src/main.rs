@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server...");
 
-    let root_handle = FileActorHandle::new();
+    let root_handle = FileActorHandle::new().await;
     let proto = ProtoHandler::new(root_handle);
 
     let addr = "[::1]:50051".parse()?;
