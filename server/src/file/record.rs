@@ -2,7 +2,9 @@ use bytes::Bytes;
 use std::{collections::HashMap, io::SeekFrom, usize};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tracing::{info, instrument};
 
+#[derive(Debug)]
 pub(crate) struct Record {
     record_file: File,
     key_map: HashMap<String, u64>,
@@ -25,6 +27,7 @@ impl Record {
         }
     }
 
+    #[instrument]
     pub async fn write_record(
         &mut self,
         key: String,
@@ -35,6 +38,7 @@ impl Record {
 
         self.record_file.write_all(&data[..]).await?;
 
+        info!("Wrote data");
         Ok(())
     }
 }
