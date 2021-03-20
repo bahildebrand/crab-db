@@ -14,8 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(Level::INFO)
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     info!("Starting server...");
 

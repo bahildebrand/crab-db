@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
-    record: Record
+    record: Record,
 }
 enum FileActorMessage {
     WriteData {
@@ -19,7 +19,7 @@ impl FileActor {
     async fn new(receiver: mpsc::Receiver<FileActorMessage>) -> Self {
         FileActor {
             receiver: receiver,
-            record: Record::new("record.csv").await
+            record: Record::new("record.csv").await,
         }
     }
 

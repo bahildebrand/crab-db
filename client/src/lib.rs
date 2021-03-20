@@ -13,10 +13,9 @@ pub struct CrabClient {
 impl CrabClient {
     pub async fn new(addr: String) -> Self {
         CrabClient {
-            client: CrabDbClient::connect(addr).await.unwrap()
+            client: CrabDbClient::connect(addr).await.unwrap(),
         }
     }
-
 
     pub async fn write(
         &mut self,
