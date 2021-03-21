@@ -3,6 +3,7 @@ package crab_db;
 
 service CrabDb {
     rpc Write (WriteRequest) returns (WriteResponse);
+    rpc Read (ReadRequest) returns (ReadResponse);
 }
 
 message WriteRequest {
@@ -12,4 +13,13 @@ message WriteRequest {
 
 message WriteResponse {
     string message = 1;
+}
+
+message ReadRequest {
+    string key = 1;
+}
+
+message ReadResponse {
+    string message = 1;
+    bytes data = 2;
 }

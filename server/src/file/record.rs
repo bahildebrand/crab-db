@@ -1,7 +1,7 @@
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use std::{collections::HashMap, io::SeekFrom};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tracing::{info, instrument};
 
 #[derive(Debug)]
@@ -40,5 +40,23 @@ impl Record {
 
         info!("Wrote data");
         Ok(())
+    }
+
+    pub async fn read_record(
+        &mut self,
+        key: String,
+    ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
+        match self.key_map.get(&key) {
+            Some(offset) => {
+                let _cursor = self.record_file.seek(SeekFrom::Start(*offset)).await?;
+
+                let mut data = BytesMut::with_capacity(100);
+
+                self.record_file.read_buf(&mut data).await?;
+
+                Ok(Some(data.freeze()))
+            }
+            None => Ok(None),
+        }
     }
 }
