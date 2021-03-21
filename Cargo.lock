@@ -139,6 +139,8 @@ dependencies = [
 name = "crab-db"
 version = "0.1.0"
 dependencies = [
+ "bson",
+ "byteorder",
  "bytes",
  "prost",
  "tokio",

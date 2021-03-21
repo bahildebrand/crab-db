@@ -1,3 +1,5 @@
+use crate::file::bson_utils::size_from_bytes;
+use byteorder::{LittleEndian, ReadBytesExt};
 use bytes::{Bytes, BytesMut};
 use std::{collections::HashMap, io::SeekFrom};
 use tokio::fs::{File, OpenOptions};
@@ -42,16 +44,24 @@ impl Record {
         Ok(())
     }
 
+    #[instrument]
     pub async fn read_record(
         &mut self,
         key: String,
     ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
         match self.key_map.get(&key) {
             Some(offset) => {
-                let _cursor = self.record_file.seek(SeekFrom::Start(*offset)).await?;
+                let cursor = self.record_file.seek(SeekFrom::Start(*offset)).await?;
+                let mut buf = vec![0, 0, 0, 0];
 
-                let mut data = BytesMut::with_capacity(100);
+                info!("Reading data..");
 
+                self.record_file.read_exact(&mut buf[..]).await?;
+                let size = size_from_bytes(buf);
+
+                let _ = self.record_file.seek(SeekFrom::Start(cursor)).await?;
+
+                let mut data = BytesMut::with_capacity(size);
                 self.record_file.read_buf(&mut data).await?;
 
                 Ok(Some(data.freeze()))
