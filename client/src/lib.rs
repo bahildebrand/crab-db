@@ -1,6 +1,6 @@
 use crab_db::crab_db_client::CrabDbClient;
-use crab_db::{WriteRequest, WriteResponse};
-use tonic::{transport::Channel, Request, Response, Status};
+use crab_db::{ReadRequest, WriteRequest};
+use tonic::{transport::Channel, Request};
 
 pub mod crab_db {
     tonic::include_proto!("crab_db"); // The string specified here must match the proto package name
@@ -31,5 +31,14 @@ impl CrabClient {
 
         println!("Response: {:?}", response);
         Ok(())
+    }
+
+    pub async fn read(&mut self, key: String) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let request = Request::new(ReadRequest { key: key });
+
+        let response = self.client.read(request).await?;
+
+        println!("Response: {:?}", response);
+        Ok(response.into_inner().data)
     }
 }
