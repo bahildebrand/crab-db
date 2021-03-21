@@ -1,5 +1,7 @@
+use bson::Document;
 use crab_db::crab_db_client::CrabDbClient;
 use crab_db::{ReadRequest, WriteRequest};
+use std::io::Cursor;
 use tonic::{transport::Channel, Request};
 
 pub mod crab_db {
@@ -20,11 +22,14 @@ impl CrabClient {
     pub async fn write(
         &mut self,
         key: String,
-        data: Vec<u8>,
+        data: Document,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut buffer = Vec::<u8>::new();
+        data.to_writer(&mut buffer)?;
+
         let request = Request::new(WriteRequest {
             key: key,
-            data: data,
+            data: buffer,
         });
 
         let response = self.client.write(request).await?;
@@ -33,12 +38,15 @@ impl CrabClient {
         Ok(())
     }
 
-    pub async fn read(&mut self, key: String) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub async fn read(&mut self, key: String) -> Result<Document, Box<dyn std::error::Error>> {
         let request = Request::new(ReadRequest { key: key });
 
         let response = self.client.read(request).await?;
 
         println!("Response: {:?}", response);
-        Ok(response.into_inner().data)
+        let data = response.into_inner().data;
+        let mut cursor = Cursor::new(&data);
+        let doc = Document::from_reader(&mut cursor)?;
+        Ok(doc)
     }
 }
