@@ -1,2 +1,2 @@
 pub(crate) mod actor;
-pub(crate) mod record;
+pub(crate) mod segment;

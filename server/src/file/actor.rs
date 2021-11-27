@@ -1,10 +1,11 @@
-use crate::file::record::Record;
+use crate::file::segment::SegmentManager;
+
 use bytes::Bytes;
 use tokio::fs::OpenOptions;
 use tokio::sync::{mpsc, oneshot};
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
-    record: Record,
+    segment_manager: SegmentManager,
 }
 
 pub enum ReadError {
@@ -28,8 +29,8 @@ enum FileActorMessage {
 impl FileActor {
     async fn new(receiver: mpsc::Receiver<FileActorMessage>) -> Self {
         FileActor {
-            receiver: receiver,
-            record: Record::new("record.csv").await,
+            receiver,
+            segment_manager: SegmentManager::new("segment_map").await,
         }
     }
 
@@ -43,13 +44,13 @@ impl FileActor {
                 key,
                 data,
             } => {
-                self.record.write_record(key, data).await?;
+                self.segment_manager.put(key, data).await?;
 
                 // TODO: Turn this into an error response
                 respond_to.send(0);
             }
             FileActorMessage::ReadData { respond_to, key } => {
-                let read = self.record.read_record(key).await?;
+                let read = self.segment_manager.get(key).await?;
 
                 match read {
                     Some(data) => {
