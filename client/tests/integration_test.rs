@@ -2,6 +2,7 @@ use bson::doc;
 use client::CrabClient;
 use rand::prelude::*;
 
+#[ignore]
 #[tokio::test]
 async fn test_write_read() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = CrabClient::new("http://[::1]:50051".into()).await;

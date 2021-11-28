@@ -1,9 +1,10 @@
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 
@@ -80,14 +81,19 @@ impl SegmentMerger {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+struct SegmentMapData {
+    data: Vec<String>,
+}
+
 struct SegmentMap {
     segment_map_file: File,
-    segment_map: Vec<String>,
+    segment_data: SegmentMapData,
 }
 
 impl SegmentMap {
     async fn new(segment_map_filename: &str) -> Self {
-        let segment_map_file = OpenOptions::new()
+        let mut segment_map_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -95,16 +101,21 @@ impl SegmentMap {
             .await
             .unwrap();
 
-        let segment_map = Vec::new();
-        // TODO: Populate segment map from file
+        let mut segment_data_bytes = Vec::new();
+        segment_map_file
+            .read_to_end(&mut segment_data_bytes)
+            .await
+            .unwrap();
+
+        let segment_data: SegmentMapData = bson::from_slice(segment_data_bytes.as_slice()).unwrap();
 
         Self {
             segment_map_file,
-            segment_map,
+            segment_data,
         }
     }
 
-    async fn write_new_segment_file(&mut self, segment_map: BTreeMap<String, Bytes>) {
+    async fn write_new_segment_file(&mut self, segment: SegmentData) {
         let start = SystemTime::now();
         let timestamp_ms = start
             .duration_since(UNIX_EPOCH)
@@ -112,8 +123,8 @@ impl SegmentMap {
             .as_millis();
 
         let segment_filename = format!("segment-{}", timestamp_ms);
-        self.segment_map.push(segment_filename.clone());
-        let _segment_file = OpenOptions::new()
+        self.segment_data.data.push(segment_filename.clone());
+        let mut segment_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -121,20 +132,35 @@ impl SegmentMap {
             .await
             .unwrap();
 
-        // TODO: Actually write segment file
+        let data = bson::to_vec(&segment).unwrap();
+        segment_file.write_all(&data).await.unwrap();
+
+        // This is really dumb. I need a way to append in place instead of rewriting files
+        self.segment_map_file.rewind().await.unwrap();
+        self.write_segment_map().await;
     }
+
+    async fn write_segment_map(&mut self) {
+        let data = bson::to_vec(&self.segment_data).unwrap();
+        self.segment_map_file.write_all(&data).await.unwrap();
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct SegmentData {
+    data: BTreeMap<String, Bytes>,
 }
 
 #[derive(Debug)]
 pub(crate) struct Segment {
-    key_map: BTreeMap<String, Bytes>,
+    key_map: SegmentData,
     segment_size: usize,
 }
 
 impl Segment {
     pub async fn new() -> Self {
         Segment {
-            key_map: BTreeMap::new(),
+            key_map: SegmentData::default(),
             segment_size: 0,
         }
     }
@@ -146,7 +172,7 @@ impl Segment {
         data: Bytes,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let new_data_size = data.len();
-        self.segment_size = if let Some(old_data) = self.key_map.insert(key, data) {
+        self.segment_size = if let Some(old_data) = self.key_map.data.insert(key, data) {
             self.segment_size - old_data.len() + new_data_size
         } else {
             self.segment_size + new_data_size
@@ -161,15 +187,35 @@ impl Segment {
         &mut self,
         key: String,
     ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.key_map.get(&key).cloned())
+        Ok(self.key_map.data.get(&key).cloned())
     }
 
-    fn split_segment(&mut self) -> BTreeMap<String, Bytes> {
+    fn split_segment(&mut self) -> SegmentData {
         self.segment_size = 0;
         std::mem::take(&mut self.key_map)
     }
 
     fn size(&self) -> usize {
         self.segment_size
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_segment_map_serde() {
+        let mut segment_map_data = SegmentMapData::default();
+
+        segment_map_data.data.push("segment-1".into());
+        segment_map_data.data.push("segment-2".into());
+
+        let bson_document = bson::to_document(&segment_map_data).unwrap();
+
+        assert_eq!(
+            segment_map_data,
+            bson::from_document(bson_document).unwrap()
+        );
     }
 }
