@@ -1,19 +1,20 @@
 use crate::file::segment::SegmentManager;
 
 use bytes::Bytes;
-use tokio::fs::OpenOptions;
 use tokio::sync::{mpsc, oneshot};
 struct FileActor {
     receiver: mpsc::Receiver<FileActorMessage>,
     segment_manager: SegmentManager,
 }
 
+#[derive(Debug)]
 pub enum ReadError {
     KeyNotFound,
 }
 
 pub type ReadResult = Result<Bytes, ReadError>;
 
+#[derive(Debug)]
 enum FileActorMessage {
     WriteData {
         respond_to: oneshot::Sender<u32>,
@@ -47,17 +48,17 @@ impl FileActor {
                 self.segment_manager.put(key, data).await?;
 
                 // TODO: Turn this into an error response
-                respond_to.send(0);
+                respond_to.send(0).unwrap();
             }
             FileActorMessage::ReadData { respond_to, key } => {
                 let read = self.segment_manager.get(key).await?;
 
                 match read {
                     Some(data) => {
-                        respond_to.send(Ok(data));
+                        respond_to.send(Ok(data)).unwrap();
                     }
                     None => {
-                        respond_to.send(Err(ReadError::KeyNotFound));
+                        respond_to.send(Err(ReadError::KeyNotFound)).unwrap();
                     }
                 }
             }
@@ -70,13 +71,6 @@ impl FileActor {
 async fn run_file_actor(
     mut actor: FileActor,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let shard_file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open("shard.csv")
-        .await?;
-
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await?;
     }
