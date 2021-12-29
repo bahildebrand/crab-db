@@ -5,28 +5,37 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
+use tokio::time::MissedTickBehavior;
 use tracing::{info, instrument};
 
 pub(crate) struct SegmentManager {
-    segment_map: Arc<RwLock<SegmentMap>>,
-    current_segment: Segment,
+    current_segment: Arc<RwLock<Segment>>,
+    merge_notification: Arc<Notify>,
 }
 
 impl SegmentManager {
     const MAX_SEGMENT_SIZE: usize = 2048; // Max segment size in bytes
 
     pub async fn new(segment_map_filename: &str) -> Self {
-        let segment_map = Arc::new(RwLock::new(SegmentMap::new(segment_map_filename).await));
+        let segment_map = SegmentMap::new(segment_map_filename).await;
 
-        let mut segment_merger = SegmentMerger::new(segment_map.clone());
+        let merge_notification = Arc::new(Notify::new());
+
+        let current_segment = Segment::new().await;
+        let current_segment = Arc::new(RwLock::new(current_segment));
+        let mut segment_merger = SegmentMerger::new(
+            segment_map,
+            merge_notification.clone(),
+            current_segment.clone(),
+        );
         tokio::spawn(async move {
             segment_merger.run().await;
         });
 
         Self {
-            segment_map,
-            current_segment: Segment::new().await,
+            current_segment,
+            merge_notification,
         }
     }
 
@@ -35,16 +44,11 @@ impl SegmentManager {
         key: String,
         value: Bytes,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.current_segment.write_segment(key, value).await?;
+        let mut current_segment = self.current_segment.write().await;
+        current_segment.write_segment(key, value).await?;
 
-        if self.current_segment.size() > Self::MAX_SEGMENT_SIZE {
-            let old_map = self.current_segment.split_segment();
-
-            self.segment_map
-                .write()
-                .await
-                .write_new_segment_file(old_map)
-                .await;
+        if current_segment.size() >= Self::MAX_SEGMENT_SIZE {
+            self.merge_notification.notify_one();
         }
 
         Ok(())
@@ -54,30 +58,61 @@ impl SegmentManager {
         &mut self,
         key: String,
     ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
-        self.current_segment.read_segment(key).await
+        self.current_segment.read().await.read_segment(key).await
     }
 }
 
 struct SegmentMerger {
-    segment_map: Arc<RwLock<SegmentMap>>,
+    segment_map: SegmentMap,
+    merge_notification: Arc<Notify>,
+    current_segment: Arc<RwLock<Segment>>,
 }
 
 impl SegmentMerger {
     const MERGE_DURATION_TIME_MS: u64 = 200;
 
-    fn new(segment_map: Arc<RwLock<SegmentMap>>) -> Self {
-        Self { segment_map }
+    fn new(
+        segment_map: SegmentMap,
+        merge_notification: Arc<Notify>,
+        current_segment: Arc<RwLock<Segment>>,
+    ) -> Self {
+        Self {
+            segment_map,
+            merge_notification,
+            current_segment,
+        }
     }
 
     async fn run(&mut self) {
         let mut interval =
             tokio::time::interval(Duration::from_millis(Self::MERGE_DURATION_TIME_MS));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            interval.tick().await;
+            // This is kind of jank. Need a beter way to race these futures that isn't so
+            // ugly.
+            tokio::select! {
+                _ = interval.tick() => {}
+                _ = self.merge_notification.notified() => {}
+            }
 
-            // TODO Actually merge segment maps
+            self.write_new_segment_file().await;
         }
+    }
+
+    async fn write_new_segment_file(&mut self) {
+        let start = SystemTime::now();
+        let timestamp_ms = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let segment_filename = format!("segment-{}", timestamp_ms);
+
+        let old_segment = self.current_segment.write().await.split_segment();
+        self.segment_map
+            .add_segment(segment_filename, old_segment)
+            .await;
     }
 }
 
@@ -87,8 +122,8 @@ struct SegmentMapData {
 }
 
 struct SegmentMap {
-    segment_map_file: File,
     segment_data: SegmentMapData,
+    segment_map_file: File,
 }
 
 impl SegmentMap {
@@ -110,25 +145,19 @@ impl SegmentMap {
         let segment_data: SegmentMapData = bson::from_slice(segment_data_bytes.as_slice()).unwrap();
 
         Self {
-            segment_map_file,
             segment_data,
+            segment_map_file,
         }
     }
 
-    async fn write_new_segment_file(&mut self, segment: SegmentData) {
-        let start = SystemTime::now();
-        let timestamp_ms = start
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis();
+    async fn add_segment(&mut self, file_name: String, segment: SegmentData) {
+        self.segment_data.data.push(file_name.clone());
 
-        let segment_filename = format!("segment-{}", timestamp_ms);
-        self.segment_data.data.push(segment_filename.clone());
         let mut segment_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(segment_filename)
+            .open(file_name)
             .await
             .unwrap();
 
@@ -184,7 +213,7 @@ impl Segment {
 
     #[instrument]
     pub async fn read_segment(
-        &mut self,
+        &self,
         key: String,
     ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.key_map.data.get(&key).cloned())
