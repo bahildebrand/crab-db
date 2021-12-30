@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::{File, OpenOptions};
@@ -180,6 +181,17 @@ impl SegmentMap {
         let segment = Segment::new(merged_segment, 0);
 
         self.add_segment(segment_filename, segment).await;
+        self.delete_old_segments().await;
+    }
+
+    async fn delete_old_segments(&mut self) {
+        let segment_map_len = self.segment_data.data.len();
+        if !segment_map_len > 1 {
+            for segment_file in self.segment_data.data.drain(..segment_map_len) {
+                let path = Path::new(&segment_file);
+                tokio::fs::remove_file(path).await.unwrap();
+            }
+        }
     }
 
     async fn add_segment(&mut self, file_name: String, segment: Segment) {
