@@ -22,7 +22,7 @@ impl SegmentManager {
 
         let merge_notification = Arc::new(Notify::new());
 
-        let current_segment = Segment::new().await;
+        let current_segment = Segment::default();
         let current_segment = Arc::new(RwLock::new(current_segment));
         let mut segment_merger = SegmentMerger::new(
             segment_map,
@@ -64,7 +64,7 @@ impl SegmentManager {
 
 struct SegmentMerger {
     segment_map: SegmentMap,
-    merge_notification: Arc<Notify>,
+    split_notification: Arc<Notify>,
     current_segment: Arc<RwLock<Segment>>,
 }
 
@@ -73,12 +73,12 @@ impl SegmentMerger {
 
     fn new(
         segment_map: SegmentMap,
-        merge_notification: Arc<Notify>,
+        split_notification: Arc<Notify>,
         current_segment: Arc<RwLock<Segment>>,
     ) -> Self {
         Self {
             segment_map,
-            merge_notification,
+            split_notification,
             current_segment,
         }
     }
@@ -89,14 +89,15 @@ impl SegmentMerger {
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            // This is kind of jank. Need a beter way to race these futures that isn't so
-            // ugly.
             tokio::select! {
-                _ = interval.tick() => {}
-                _ = self.merge_notification.notified() => {}
+                _ = interval.tick() => {
+                    self.write_new_segment_file().await;
+                    self.segment_map.merge_segments().await;
+                }
+                _ = self.split_notification.notified() => {
+                    self.write_new_segment_file().await;
+                }
             }
-
-            self.write_new_segment_file().await;
         }
     }
 
@@ -150,7 +151,38 @@ impl SegmentMap {
         }
     }
 
-    async fn add_segment(&mut self, file_name: String, segment: SegmentData) {
+    async fn merge_segments(&mut self) {
+        let mut merged_segment = BTreeMap::new();
+        for segment_filename in &self.segment_data.data {
+            let mut segment_file = OpenOptions::new()
+                .read(true)
+                .open(segment_filename)
+                .await
+                .unwrap();
+
+            // This is pretty jank. The segments can possibly be large, but I don't feel like sorting this
+            // out right now.
+            let mut read_buffer = vec![0u8; SegmentManager::MAX_SEGMENT_SIZE * 2];
+            segment_file.read(read_buffer.as_mut_slice()).await.unwrap();
+
+            let mut segment: Segment =
+                bson::from_slice_utf8_lossy(read_buffer.as_mut_slice()).unwrap();
+
+            merged_segment.append(&mut segment.key_map);
+        }
+
+        let start = SystemTime::now();
+        let timestamp_ms = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+        let segment_filename = format!("segment-{}", timestamp_ms);
+        let segment = Segment::new(merged_segment, 0);
+
+        self.add_segment(segment_filename, segment).await;
+    }
+
+    async fn add_segment(&mut self, file_name: String, segment: Segment) {
         self.segment_data.data.push(file_name.clone());
 
         let mut segment_file = OpenOptions::new()
@@ -176,21 +208,16 @@ impl SegmentMap {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct SegmentData {
-    data: BTreeMap<String, Bytes>,
-}
-
-#[derive(Debug)]
 pub(crate) struct Segment {
-    key_map: SegmentData,
     segment_size: usize,
+    key_map: BTreeMap<String, Bytes>,
 }
 
 impl Segment {
-    pub async fn new() -> Self {
+    pub fn new(key_map: BTreeMap<String, Bytes>, segment_size: usize) -> Self {
         Segment {
-            key_map: SegmentData::default(),
-            segment_size: 0,
+            key_map,
+            segment_size,
         }
     }
 
@@ -201,7 +228,7 @@ impl Segment {
         data: Bytes,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let new_data_size = data.len();
-        self.segment_size = if let Some(old_data) = self.key_map.data.insert(key, data) {
+        self.segment_size = if let Some(old_data) = self.key_map.insert(key, data) {
             self.segment_size - old_data.len() + new_data_size
         } else {
             self.segment_size + new_data_size
@@ -216,12 +243,12 @@ impl Segment {
         &self,
         key: String,
     ) -> Result<Option<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.key_map.data.get(&key).cloned())
+        Ok(self.key_map.get(&key).cloned())
     }
 
-    fn split_segment(&mut self) -> SegmentData {
+    fn split_segment(&mut self) -> Segment {
         self.segment_size = 0;
-        std::mem::take(&mut self.key_map)
+        std::mem::take(self)
     }
 
     fn size(&self) -> usize {
