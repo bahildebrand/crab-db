@@ -12,7 +12,7 @@ use tracing::{info, instrument};
 
 pub(crate) struct SegmentManager {
     current_segment: Arc<RwLock<Segment>>,
-    merge_notification: Arc<Notify>,
+    split_notification: Arc<Notify>,
 }
 
 impl SegmentManager {
@@ -21,13 +21,13 @@ impl SegmentManager {
     pub async fn new(segment_map_filename: &str) -> Self {
         let segment_map = SegmentMap::new(segment_map_filename).await;
 
-        let merge_notification = Arc::new(Notify::new());
+        let split_notification = Arc::new(Notify::new());
 
         let current_segment = Segment::default();
         let current_segment = Arc::new(RwLock::new(current_segment));
         let mut segment_merger = SegmentMerger::new(
             segment_map,
-            merge_notification.clone(),
+            split_notification.clone(),
             current_segment.clone(),
         );
         tokio::spawn(async move {
@@ -36,7 +36,7 @@ impl SegmentManager {
 
         Self {
             current_segment,
-            merge_notification,
+            split_notification,
         }
     }
 
@@ -49,7 +49,7 @@ impl SegmentManager {
         current_segment.write_segment(key, value).await?;
 
         if current_segment.size() >= Self::MAX_SEGMENT_SIZE {
-            self.merge_notification.notify_one();
+            self.split_notification.notify_one();
         }
 
         Ok(())
@@ -187,6 +187,7 @@ impl SegmentMap {
     async fn delete_old_segments(&mut self) {
         let segment_map_len = self.segment_data.data.len();
         if !segment_map_len > 1 {
+            // Remove everything but the latest value
             for segment_file in self.segment_data.data.drain(..segment_map_len) {
                 let path = Path::new(&segment_file);
                 tokio::fs::remove_file(path).await.unwrap();
